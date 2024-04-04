@@ -59,7 +59,7 @@ class MambaLayer(nn.Module):
         coeffs = pywt.dwtn(x, self.sym_wavelist[0])
         print("coeffs size: ", len(coeffs))
         for key in coeffs.keys():
-            coeff = coeffs[key]
+            coeff = torch.from_numpy(coeffs[key])
             
             # B, C, H, W, D
             # B, C
@@ -75,7 +75,7 @@ class MambaLayer(nn.Module):
             out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
             coeffs[key] = out
         out = pywt.idwtn(coeffs, self.sym_wavelist[0])
-
+        out = torch.from_numpy(out)
         return out
 
     def forward_channel_token(self, x):
