@@ -43,7 +43,10 @@ class UpsampleLayer(nn.Module):
 class MambaLayer(nn.Module):
     def __init__(self, dim, d_state = 16, d_conv = 4, expand = 2, channel_token = False):
         super().__init__()
-        print(f"MambaLayer: dim: {dim}")
+        # print(f"MambaLayer: dim: {dim}")
+        self.d_state = d_state
+        self.d_conv = d_conv
+        self.expand = expand
         self.dim = dim
         self.norm = nn.LayerNorm(dim)
         self.mamba = Mamba(
@@ -56,25 +59,50 @@ class MambaLayer(nn.Module):
         self.sym_wavelist = pywt.wavelist('sym')
 
     def forward_patch_token(self, x):
-        coeffs = pywt.dwtn(x.cpu(), self.sym_wavelist[0])
-        print("coeffs size: ", len(coeffs))
+        #print("org ", x.shape)
+        org_B = x.shape[0]
+        a = x.cpu().detach()
+        a = np.asarray(a)
+        coeffs = pywt.dwtn(a, self.sym_wavelist[0])
+        #print("coeffs size: ", len(coeffs))
         for key in coeffs.keys():
-            coeff = torch.from_numpy(coeffs[key])
-            
-            # B, C, H, W, D
-            # B, C
-            B, d_model = coeff.shape[:2]
-            assert d_model == self.dim
-            # size(H * W * D)
-            n_tokens = coeff.shape[2:].numel()
-            # H, W, D
-            img_dims = coeff.shape[2:]
-            x_flat = coeff.reshape(B, d_model, n_tokens).transpose(-1, -2)
-            x_norm = self.norm(x_flat)
-            x_mamba = self.mamba(x_norm)
-            out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
-            coeffs[key] = out
-        out = pywt.idwtn(coeffs, self.sym_wavelist[0]).cuda()
+          coeff = torch.from_numpy(coeffs[key]).cuda()
+          # B, C, H, W, D
+          # B, C
+          B, d_model = coeff.shape[:2]
+          # size(H * W * D)
+          n_tokens = coeff.shape[2:].numel()
+          # H, W, D
+          img_dims = coeff.shape[2:]
+          # print(B, d_model, n_tokens, img_dims)
+          self.norm = nn.LayerNorm(d_model)
+          self.dim = d_model
+          self.mamba = Mamba(
+            d_model=d_model, # Model dimension d_model
+            d_state=self.d_state,  # SSM state expansion factor
+            d_conv=self.d_conv,    # Local convolution width
+            expand=self.expand,    # Block expansion factor
+          ) 
+          self.norm = self.norm.to("cuda:0")
+          self.mamba = self.mamba.to("cuda:0")
+          x_flat = coeff.reshape(B, self.dim, n_tokens).transpose(-1, -2)
+          x_norm = self.norm(x_flat)
+          x_mamba = self.mamba(x_norm)
+          out = x_mamba.transpose(-1, -2).reshape(B, self.dim, *img_dims)
+          coeffs[key] = out
+        
+        for key in coeffs.keys():
+          x = coeffs[key]
+          a = x.cpu().detach()
+          a = np.asarray(a)
+          coeffs[key] = a
+        out = pywt.idwtn(coeffs, self.sym_wavelist[0])
+        out = torch.from_numpy(out).cuda()
+        #print("final ", out.shape)
+        if(out.shape[0] != org_B):
+          out = out[:-1]
+        #print("pre final ", out.shape)
+        print("!!")
         return out
 
     def forward_channel_token(self, x):
