@@ -56,7 +56,7 @@ class MambaLayer(nn.Module):
         self.sym_wavelist = pywt.wavelist('sym')
 
     def forward_patch_token(self, x):
-        coeffs = pywt.dwtn(x, self.sym_wavelist[0])
+        coeffs = pywt.dwtn(x.cpu(), self.sym_wavelist[0])
         print("coeffs size: ", len(coeffs))
         for key in coeffs.keys():
             coeff = torch.from_numpy(coeffs[key])
@@ -74,8 +74,7 @@ class MambaLayer(nn.Module):
             x_mamba = self.mamba(x_norm)
             out = x_mamba.transpose(-1, -2).reshape(B, d_model, *img_dims)
             coeffs[key] = out
-        out = pywt.idwtn(coeffs, self.sym_wavelist[0])
-        out = torch.from_numpy(out)
+        out = pywt.idwtn(coeffs, self.sym_wavelist[0]).cuda()
         return out
 
     def forward_channel_token(self, x):
